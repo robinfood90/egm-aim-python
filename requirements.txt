@@ -1,0 +1,11 @@
+python-dotenv
+pytest
+pydantic
+psycopg[binary,pool]
+tabulate
+rapidfuzz
+numpy
+pandas
+Pillow
+pytesseract
+pypdf
