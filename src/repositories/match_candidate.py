@@ -1,15 +1,13 @@
 from typing import List
 from src.db.config import get_db_connection
 from src.schemas.match_candidate import MatchCandidateCreate
-
-def save_match_candidates(candidates: List[MatchCandidateCreate]) -> bool:
-    """
-    Save a list of match candidates into the database.
-    Returns True if success, False otherwise.
-    """
-    conn = get_db_connection()
+        
+def save_match_candidates(candidates: List[MatchCandidateCreate], conn=None) -> bool:
+    is_local_conn = False
     if conn is None:
-        return False
+        conn = get_db_connection(autocommit=False)
+        is_local_conn = True
+        if conn is None: return False
 
     query = """
         INSERT INTO match_candidate (
@@ -20,7 +18,6 @@ def save_match_candidates(candidates: List[MatchCandidateCreate]) -> bool:
             match_reason
         ) VALUES (%s, %s, %s, %s, %s)
     """
-
     try:
         with conn.cursor() as cursor:
             data_to_insert = [
@@ -35,12 +32,12 @@ def save_match_candidates(candidates: List[MatchCandidateCreate]) -> bool:
             ]
             
             cursor.executemany(query, data_to_insert)
-            
-        conn.commit()
+        
+        if is_local_conn: conn.commit()
         return True
     except Exception as e:
         print(f"❌ Error saving match candidates: {e}")
-        conn.rollback()
+        if is_local_conn: conn.rollback()
         return False
     finally:
-        conn.close()
+        if is_local_conn: conn.close()

@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def get_db_connection():
+def get_db_connection(autocommit=False):
     """
     Establishes and returns a connection to the PostgreSQL database using
     environment variables for configuration.
@@ -20,6 +20,7 @@ def get_db_connection():
                 f"password={os.getenv('DB_PASSWORD')} "
                 f"sslmode=require"
             ),
+            autocommit=autocommit,
             # Vital for Port 6543: Disables prepared statements
             prepare_threshold=None, 
             # Automatically returns results as Python Dictionaries

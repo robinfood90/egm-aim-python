@@ -1,6 +1,5 @@
 from src.db.config import get_db_connection
 from src.schemas.product_category import ProductCategory
-from src.schemas.product import ProductBase
 import uuid
 from typing import List
 

@@ -8,6 +8,7 @@ from enum import Enum
     
 class InvoiceStatus(str, Enum):
     PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
     EXTRACTED = "EXTRACTED"
     FAILED = "FAILED"
     MATCHED = "MATCHED"

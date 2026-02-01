@@ -9,3 +9,5 @@ pandas
 Pillow
 pytesseract
 pypdf
+pdf2image
+requests

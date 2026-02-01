@@ -4,21 +4,23 @@ from src.schemas.invoice import InvoiceBase
 from typing import Optional
 from uuid import UUID
 
-def get_oldest_pending_invoice() -> Optional[InvoiceBase]:
-    """
-    Get the first invoice with 'pending' status and oldest (oldest) creation date.
-    """
-    conn = get_db_connection()
+def get_oldest_pending_invoice(conn=None) -> Optional[InvoiceBase]:
+    is_local_conn = False
     if conn is None:
-        return None
+        conn = get_db_connection(autocommit=False)
+        is_local_conn = True
+        if conn is None:
+            return None
         
     try:
         with conn.cursor() as cur:
+            # Using FOR UPDATE SKIP LOCKED to avoid race conditions
             query = """
                 SELECT * FROM invoice 
                 WHERE status = %s 
                 ORDER BY created_at ASC 
                 LIMIT 1
+                FOR UPDATE SKIP LOCKED
             """
             cur.execute(query, (InvoiceStatus.PENDING.value,))
             row = cur.fetchone()
@@ -30,22 +32,31 @@ def get_oldest_pending_invoice() -> Optional[InvoiceBase]:
         print(f"Error: {e}")
         return None
     finally:
-        conn.close()
+        if is_local_conn and conn:
+            conn.close()
 
-def update_invoice_status(invoice_id: UUID, status: InvoiceStatus, error_message: str | None = None) -> bool:
-    conn = get_db_connection()
-    if conn is None: return False
+def update_invoice_status(invoice_id: UUID, status: InvoiceStatus, error_message: str | None = None, conn=None) -> bool:
+    is_local_conn = False
+    if conn is None:
+        conn = get_db_connection(autocommit=False)
+        is_local_conn = True
+        if conn is None: 
+            return False
     
     try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE invoice SET status = %s, error_message = %s, updated_at = NOW() WHERE invoice_id = %s",
-                    (status.value, error_message, invoice_id)
-                )
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE invoice SET status = %s, error_message = %s, updated_at = NOW() WHERE invoice_id = %s",
+                (status.value, error_message, invoice_id)
+            )
+    
+        if is_local_conn:
+            conn.commit()
         return True
     except Exception as e:
         print(f"❌ Error updating invoice status: {e}")
+        if is_local_conn: conn.rollback()
         return False
     finally:
-        conn.close()
+        if is_local_conn:
+            conn.close()

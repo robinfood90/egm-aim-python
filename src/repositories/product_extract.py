@@ -1,12 +1,13 @@
 from typing import List
 from src.db.config import get_db_connection
 from src.schemas.product_extract import ProductExtract, ProductExtractMatching
-from typing import List
-
-def save_extracted_products(products: List[ProductExtract]) -> List[ProductExtract]:
-    conn = get_db_connection()
+def save_extracted_products(products: List[ProductExtract], conn=None) -> List[ProductExtract]:
+    is_local_conn = False
     if conn is None:
-        return []
+        conn = get_db_connection(autocommit=False)
+        is_local_conn = True
+        if conn is None:
+            return []
 
     query = """
         INSERT INTO products_extract (
@@ -31,36 +32,40 @@ def save_extracted_products(products: List[ProductExtract]) -> List[ProductExtra
     ]
 
     try:
-        with conn:
-            with conn.cursor() as cur:
-                cur.executemany(query, params_list, returning=True)
+        with conn.cursor() as cur:
+            cur.executemany(query, params_list, returning=True)
+            
+            all_ids = []
+            while True:
+                result = cur.fetchone()
+                if result:
+                    all_ids.append(result['id'])
+                if not cur.nextset():
+                    break
                 
-                all_ids = []
-                while True:
-                    result = cur.fetchone()
-                    if result:
-                        all_ids.append(result['id'])
-                    if not cur.nextset():
-                        break
-                    
-                for p, p_id in zip(products, all_ids):
-                    p.id = p_id
-
+            for p, p_id in zip(products, all_ids):
+                p.id = p_id
+        
+        if is_local_conn: conn.commit()
         return products
     except Exception as e:
         print(f"❌ Error saving extracted products: {repr(e)}")
+        if is_local_conn: conn.rollback()
         return []
     finally:
-        conn.close()
+        if is_local_conn: conn.close()
 
 
-def save_matching(matching_data: List[ProductExtractMatching]) -> bool:
+def save_matching(matching_data: List[ProductExtractMatching], conn=None) -> bool:
     """
     Updates the products_extract table with normalization, categorization and matching results.
     """
-    conn = get_db_connection()
+    is_local_conn = False
     if conn is None:
-        return False
+        conn = get_db_connection(autocommit=False)
+        is_local_conn = True
+        if conn is None:
+            return False
 
     query = """
         UPDATE products_extract
@@ -84,35 +89,36 @@ def save_matching(matching_data: List[ProductExtractMatching]) -> bool:
     """
 
     try:
-        with conn:
-            with conn.cursor() as cur:
-                data = []
-                for m in matching_data:
-                    data.append((
-                        # Categorization
-                        m.main_category,
-                        m.main_ratio,
-                        m.second_category,
-                        m.second_ratio,
-                        m.third_category,
-                        m.third_ratio,
-                        
-                        # Matching
-                        m.matched_product_id,
-                        m.match_type.value,
-                        m.confidence,
-                        m.match_reason,
-                        
-                        # Normalization
-                        m.normalized_product_name,
-                        
-                        m.extraction_status.value,
-                        m.id
-                    ))
-                cur.executemany(query, data)
+        with conn.cursor() as cur:
+            data = []
+            for m in matching_data:
+                data.append((
+                    # Categorization
+                    m.main_category,
+                    m.main_ratio,
+                    m.second_category,
+                    m.second_ratio,
+                    m.third_category,
+                    m.third_ratio,
+                    
+                    # Matching
+                    m.matched_product_id,
+                    m.match_type.value,
+                    m.confidence,
+                    m.match_reason,
+                    
+                    # Normalization
+                    m.normalized_product_name,
+                    
+                    m.extraction_status.value,
+                    m.id
+                ))
+            cur.executemany(query, data)
+        if is_local_conn: conn.commit()
         return True
     except Exception as e:
         print(f"❌ Error updating normalization & categorization & matching: {e}")
+        if is_local_conn: conn.rollback()
         return False
     finally:
-        conn.close()
+        if is_local_conn: conn.close()

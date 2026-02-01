@@ -4,12 +4,12 @@ from src.schemas.product import ProductBase
 from src.schemas.product_extract import ProductExtract, ProductExtractMatching
 from src.schemas.category_dictionary import CategoryDictionary
 from src.schemas.match_candidate import MatchCandidateCreate
+from src.schemas.name_keywords import NameKeywordCreate
 from src.constants.enums import MatchType, MatchThreshold, ExtractionStatus
 from src.repositories.product import (
     get_products_by_identifiers,
     get_products_by_categories,
 )
-from src.repositories.name_keyword import save_name_keywords
 from src.utils.text_helpers import normalize_product_name
 from src.services.categorization import (
     get_scored_keywords,
@@ -22,7 +22,7 @@ from src.services.categorization import (
 
 def run_matching_process(
     extracted_products: List[ProductExtract], dictionary_rules: List[CategoryDictionary]
-) -> Tuple[List[ProductExtractMatching], List[MatchCandidateCreate]]:
+) -> Tuple[List[ProductExtractMatching], List[MatchCandidateCreate], List[NameKeywordCreate]]:
     """
     1. Exact Matching: by product_code, sku, barcode
     2. Fuzzy Matching: by normalized product name
@@ -47,6 +47,7 @@ def run_matching_process(
 
     matched_results: List[ProductExtractMatching] = []
     match_candidates: List[MatchCandidateCreate] = []
+    all_keywords_to_save: List[NameKeywordCreate] = []
 
     for item in extracted_products:
         match_result = ProductExtractMatching(
@@ -101,7 +102,7 @@ def run_matching_process(
             top_cates = select_top_categories(product_extract_id, category_results)
 
             if high_score_keywords:
-                save_name_keywords(high_score_keywords)
+                all_keywords_to_save.extend(high_score_keywords)
 
             if top_cates and top_cates.main_category:
                 match_result.main_category = top_cates.main_category
@@ -128,11 +129,12 @@ def run_matching_process(
                     choices = list(norm_db_map.keys())
 
                     # RapidFuzz: Get all restults with score >= 60 (0.6 or 60%)
+                    score_cutoff_pct = int(MatchThreshold.REVIEW * 100)
                     fuzzy_results = process.extract(
                         match_result.normalized_product_name,
                         choices,
                         scorer=fuzz.token_set_ratio,
-                        score_cutoff=60,
+                        score_cutoff=score_cutoff_pct,
                         limit=None,
                     )
 
@@ -146,7 +148,7 @@ def run_matching_process(
                                 match_type=MatchType.FUZZY,
                                 match_reason=(
                                     "Fuzzy match by name & category"
-                                    if i == 0 and res[1] >= MatchThreshold.AUTO_MATCH
+                                    if i == 0 and (res[1] / 100) >= MatchThreshold.AUTO_MATCH
                                     else "High similarity, needs human check"
                                 ),
                                 # For test, not saved to DB
@@ -162,7 +164,7 @@ def run_matching_process(
                         best_db_prod = norm_db_map[best_name]
                         best_confidence = round(best_score / 100, 2)
 
-                        if best_score >= MatchThreshold.AUTO_MATCH:
+                        if (best_score / 100) >= MatchThreshold.AUTO_MATCH:
                             match_result.matched_product_id = best_db_prod.id
                             match_result.match_type = MatchType.FUZZY
                             match_result.confidence = best_confidence
@@ -187,4 +189,4 @@ def run_matching_process(
 
         matched_results.append(match_result)
 
-    return matched_results, match_candidates
+    return matched_results, match_candidates, all_keywords_to_save
