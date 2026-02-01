@@ -11,3 +11,4 @@ pytesseract
 pypdf
 pdf2image
 requests
+supabase
