@@ -9,7 +9,7 @@ from src.repositories.name_keyword import save_name_keywords
 from src.constants.enums import InvoiceStatus
 from src.utils.display import print_extracted_products, print_matching_results, print_match_candidates
 from src.schemas.invoice import InvoiceBase
-from src.db.config import get_db_connection
+from src.db.config import get_db_connection, get_listen_connection
 import os
 import time
 
@@ -124,7 +124,8 @@ def main_worker():
         worker_conn = None
         try:
             # 1. Establish two DB connections
-            listen_conn = get_db_connection(autocommit=True)
+            # Use direct connection for LISTEN (port 5432) instead of pooler (port 6543)
+            listen_conn = get_listen_connection()
             worker_conn = get_db_connection(autocommit=False)
 
             if not listen_conn or not worker_conn:
@@ -139,22 +140,32 @@ def main_worker():
             process_queue(worker_conn)
 
             # 4. Event Loop: Wait for notifications and process the queue
+            print("⏳ [System] Waiting for notifications...")
             while True:
-                # Poll for notifications by executing a simple query
-                # This allows psycopg3 to check for pending notifications
-                listen_conn.execute("SELECT 1")
-                
-                # Check for notifications
-                notifies = list(listen_conn.notifies())
-                
-                if notifies:
-                    print(f"⚡ [Event] New notify: {len(notifies)}")
-                    for n in notifies:
-                        print(f"   🔔 Channel: {n.channel} | Payload: {n.payload}")
+                try:
+                    # Use notifies() with timeout to wait for notifications
+                    # This is the correct way in psycopg3
+                    notifies = list(listen_conn.notifies(timeout=10))
                     
-                    process_queue(worker_conn)
-                else:
-                    # No notifications, wait a bit before polling again
+                    if notifies:
+                        print(f"⚡ [Event] New notify: {len(notifies)}")
+                        for n in notifies:
+                            print(f"   🔔 Channel: {n.channel} | Payload: {n.payload}")
+                        
+                        process_queue(worker_conn)
+                    else:
+                        # Timeout - check connection is still alive
+                        listen_conn.execute("SELECT 1")
+                except Exception as notify_err:
+                    print(f"⚠️ [Warning] Error waiting for notification: {notify_err}")
+                    # Fallback to polling if notifies() fails
+                    listen_conn.execute("SELECT 1")
+                    notifies = list(listen_conn.notifies())
+                    if notifies:
+                        print(f"⚡ [Event] New notify: {len(notifies)}")
+                        for n in notifies:
+                            print(f"   🔔 Channel: {n.channel} | Payload: {n.payload}")
+                        process_queue(worker_conn)
                     time.sleep(1)
                 
         except Exception as e:
