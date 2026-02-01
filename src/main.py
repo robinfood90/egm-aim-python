@@ -11,7 +11,6 @@ from src.utils.display import print_extracted_products, print_matching_results, 
 from src.schemas.invoice import InvoiceBase
 from src.db.config import get_db_connection
 import os
-import select
 import time
 
 CHANNEL = "invoice_inserted"
@@ -141,10 +140,11 @@ def main_worker():
 
             # 4. Event Loop: Wait for notifications and process the queue
             while True:
-                if select.select([listen_conn], [], [], 10) == ([], [], []):
-                    listen_conn.execute("SELECT 1")
-                    continue
+                # Poll for notifications by executing a simple query
+                # This allows psycopg3 to check for pending notifications
+                listen_conn.execute("SELECT 1")
                 
+                # Check for notifications
                 notifies = list(listen_conn.notifies())
                 
                 if notifies:
@@ -153,6 +153,9 @@ def main_worker():
                         print(f"   🔔 Channel: {n.channel} | Payload: {n.payload}")
                     
                     process_queue(worker_conn)
+                else:
+                    # No notifications, wait a bit before polling again
+                    time.sleep(1)
                 
         except Exception as e:
             print(f"❌ [Error] {e}")
