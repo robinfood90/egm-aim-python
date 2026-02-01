@@ -47,6 +47,10 @@ def read_pdf_file(
     is_url = file_path.startswith(("http://", "https://"))
     target_path = file_path
     temp_pdf = None
+    
+    # Get Poppler path from environment variable (optional)
+    # If not set, pdf2image will use system PATH
+    poppler_path = os.getenv("POPPLER_PATH")
 
     try:
         # --- Download file if it's a URL ---
@@ -96,11 +100,16 @@ def read_pdf_file(
         else:
             try:
                 # Convert PDF pages to images (high DPI for better OCR accuracy - DPI=300)
+                # Prepare convert_from_path arguments
+                convert_kwargs = {"dpi": 300}
+                if poppler_path:
+                    convert_kwargs["poppler_path"] = poppler_path
+                
                 images = (
-                    convert_from_path(target_path, dpi=300)
+                    convert_from_path(target_path, **convert_kwargs)
                     if is_extract_all
                     else convert_from_path(
-                        target_path, dpi=300, first_page=1, last_page=1
+                        target_path, first_page=1, last_page=1, **convert_kwargs
                     )
                 )
                 ocr_results = []
